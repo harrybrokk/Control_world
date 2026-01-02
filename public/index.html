@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Leo Ghost V1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { background: #000; color: #0f0; font-family: monospace; text-align: center; margin: 0; padding: 20px; }
+        input { padding: 10px; width: 80%; margin-bottom: 10px; background: #111; border: 1px solid #0f0; color: #0f0; outline: none; }
+        button { padding: 10px 20px; background: #0f0; color: #000; border: none; cursor: pointer; font-weight: bold; border-radius: 5px; }
+        video { width: 100%; border: 2px solid #0f0; margin-top: 10px; border-radius: 10px; background: #222; }
+        #localVideo { width: 30%; position: fixed; bottom: 10px; right: 10px; border: 1px solid white; z-index: 10; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+  <h1>LEO GHOST V1</h1>
+    <div id="login">
+        <p>Enter a shared email to connect devices</p>
+        <input type="email" id="email" placeholder="example@gmail.com">
+        <br>
+        <button onclick="startSession()">START CONNECTION</button>
+    </div>
+
+    <div id="dashboard" class="hidden">
+        <p>Target View: <span id="userEmail" style="color: white;"></span></p>
+        <video id="remoteVideo" autoplay playsinline></video>
+        <video id="localVideo" autoplay playsinline muted></video>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let peerConnection;
+        const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+        let userEmail = "";
+      async function startSession() {
+            userEmail = document.getElementById('email').value;
+            if(!userEmail) return alert("Email daal bhai!");
+            
+            document.getElementById('login').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            document.getElementById('userEmail').innerText = userEmail;
+            
+            socket.emit('join', userEmail);
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('localVideo').srcObject = stream;
+
+                peerConnection = new RTCPeerConnection(config);
+                stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+
+                peerConnection.onicecandidate = (event) => {
+                    if(event.candidate) socket.emit('signal', { email: userEmail, signal: { candidate: event.candidate } });
+                };
+              peerConnection.ontrack = (event) => {
+                    document.getElementById('remoteVideo').srcObject = event.streams[0];
+                };
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                socket.emit('signal', { email: userEmail, signal: { sdp: offer } });
+
+            } catch (err) {
+                alert("Camera permission denied!");
+            }
+        }
+      socket.on('signal', async (signal) => {
+            if(!peerConnection) return;
+            if(signal.sdp) {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                if(signal.sdp.type === 'offer') {
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    socket.emit('signal', { email: userEmail, signal: { sdp: answer } });
+                }
+            } else if(signal.candidate) {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            }
+        });
+    </script>
+</body>
+</html>
