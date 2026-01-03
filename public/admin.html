@@ -105,8 +105,7 @@
             listDiv.innerHTML = "";
             
             // Sort: Online devices upar aayenge
-        const ids = Object.keys(deviceHistory).sort((a,b) => (deviceHistory[b].status === 'online') - (deviceHistory[a].status === 'online'));
-
+            const ids = Object.keys(deviceHistory).sort((a,b) => (deviceHistory[b].status === 'online') - (deviceHistory[a].status === 'online'));
             ids.forEach(id => {
                 const dev = deviceHistory[id];
                 const d = document.createElement('div');
@@ -144,7 +143,6 @@
             pc.ontrack = (e) => { document.getElementById('remoteVideo').srcObject = e.streams[0]; };
             socket.emit('command', { targetId: id, cmd: 'start' });
         }
-
         socket.on('signal', async (d) => {
             if(d.from !== currentTarget) return;
             if(d.signal.sdp) {
